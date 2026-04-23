@@ -61,44 +61,48 @@ void insert(hash_lock_t* bucket, int key, int value) {
 }
 
 int setKey(hash_lock_t* bucket, int key, int new_key) {
+
     int find=0;
     int posi=HASH(key);
     int newposi=HASH(new_key);
-    pthread_mutex_lock(&bucket->table[posi].mutex);
 
+    int first_lock = (posi < newposi) ? posi : newposi;
+    int second_lock = (posi < newposi) ? newposi : posi;
+
+    pthread_mutex_lock(&bucket->table[first_lock].mutex);
+    if (first_lock != second_lock) {
+        pthread_mutex_lock(&bucket->table[second_lock].mutex);
+    }
+
+    //临界区------------
     Hlist pnode=bucket->table[posi].head;
     Hlist prev=NULL;
-    Hlist nextone=NULL;
 
-  while(pnode!=NULL){
-    if(pnode->key==key){
-      nextone=pnode->next;
-      find=1;
-      break;
+    while (pnode != NULL) {
+        if (pnode->key == key) {
+            if (prev == NULL) {
+                bucket->table[posi].head = pnode->next;
+            } else {
+                prev->next = pnode->next;
+            }
+            find = 1;
+            break;
+        }
+        prev = pnode;
+        pnode = pnode->next;
     }
-    prev=pnode;
-    pnode=pnode->next;
-  }
 
-  if(!find){
-    pthread_mutex_unlock(&bucket->table[posi].mutex);      
-    return -1;
-  }
+    if(find){
+        pnode->key=new_key;
+        pnode->next=bucket->table[newposi].head;
+        bucket->table[newposi].head=pnode;
+    }
+    //------------
 
-  if(prev==NULL){
-    bucket->table[posi].head=nextone;
-  }else{
-    prev->next=nextone;
-  }
-    pthread_mutex_unlock(&bucket->table[posi].mutex); 
-    pthread_mutex_lock(&bucket->table[newposi].mutex);
+    if (first_lock!=second_lock) {
+        pthread_mutex_unlock(&bucket->table[second_lock].mutex);
+    }
+    pthread_mutex_unlock(&bucket->table[first_lock].mutex);
 
-  pnode->next=bucket->table[newposi].head;
-  bucket->table[newposi].head=pnode;
-
-    pthread_mutex_unlock(&bucket->table[newposi].mutex);     
-
-  return 0;
-
-
+    return find ? 0 : -1;
 }
